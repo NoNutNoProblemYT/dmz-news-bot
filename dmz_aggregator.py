@@ -5,11 +5,9 @@ import feedparser
 import requests
 from google import genai
 
-# Grab protected keys from GitHub Secret Vault
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Explicitly load the client with your key so it never hangs
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
 FEEDS = {
@@ -17,7 +15,6 @@ FEEDS = {
     "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
 }
 
-# File tracker to remember what has already been posted so it never repeats
 TRACKER_FILE = "sent_links.txt"
 
 def load_sent_links():
@@ -72,54 +69,51 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking feeds with expanded depth...")
+    print("Checking feeds with debug logging...")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
     }
     
-    # Extended 14-day window to catch anything recent that missed a beat
-    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
-    
     for source_name, feed_url in FEEDS.items():
-        print(f"Connecting to {source_name}...")
+        print(f"Connecting to {source_name} ({feed_url})...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
+            print(f"HTTP Status for {source_name}: {response.status_code}")
             feed = feedparser.parse(response.content)
         except Exception as e:
             print(f"Failed to connect to {source_name}. Error: {e}")
             continue
         
         if not feed.entries:
-            print(f"No articles found for {source_name}.")
+            print(f"WARNING: feedparser found ZERO entries for {source_name}. The feed might be blocked or empty.")
             continue
 
-        # Grab up to the top 5 entries to ensure fast-dropping trailers aren't bypassed
-        for entry in feed.entries[:5]:
-            if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-                if entry_date < two_weeks_ago:
-                    continue
+        print(f"Successfully loaded {len(feed.entries)} entries from {source_name}.")
 
+        for entry in feed.entries[:5]:
+            title = getattr(entry, 'title', 'No Title')
             link = getattr(entry, 'link', feed_url)
+            print(f"-> Found raw entry title: {title}")
             
             if link in sent_links:
+                print(f"   (Skipping: already in sent_links.txt)")
                 continue
 
-            title = entry.title
             description = getattr(entry, 'summary', title)
             
-            print(f"Analyzing: {title}")
+            print(f"   Analyzing with Gemini...")
             summary = analyze_and_summarize(title, description)
+            print(f"   Gemini response: {summary[:50]}...")
             
             if summary and "IGNORE" not in summary.upper():
-                print(f"Found match: sending '{title}' to Discord!")
+                print(f"   MATCH FOUND! Sending '{title}' to Discord!")
                 send_to_discord(title, summary, link, source_name)
                 save_sent_link(link)
                 sent_links.add(link)
             else:
-                print("Skipped: Not relevant to DMZ/MW4.")
+                print("   Skipped: Gemini returned IGNORE.")
 
 if __name__ == "__main__":
     check_for_updates()
