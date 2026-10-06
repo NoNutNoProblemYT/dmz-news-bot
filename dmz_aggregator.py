@@ -10,7 +10,6 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 # Explicitly load the client with your key so it never hangs
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
-
 FEEDS = {
     "COD Blog": "https://callofduty.com",
     "COD YouTube": "https://youtube.com"
@@ -26,9 +25,12 @@ def send_to_discord(title, summary, link, source_name):
             "footer": {"text": "🧠 Powered by Gemini AI Intelligence Engine"}
         }]
     }
-    response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-    if response.status_code != 204:
-        print(f"Failed to post to Discord: {response.text}")
+    try:
+        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        if response.status_code != 204:
+            print(f"Failed to post to Discord: {response.text}")
+    except Exception as e:
+        print(f"Discord Webhook Error: {e}")
 
 def analyze_and_summarize(title, description):
     prompt = f"""
@@ -56,20 +58,39 @@ def analyze_and_summarize(title, description):
 
 def check_for_updates():
     print("Checking official feeds...")
+    # Add a browser disguise so websites don't block the GitHub bot
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+    }
+    
     for source_name, feed_url in FEEDS.items():
-        feed = feedparser.parse(feed_url)
+        print(f"Connecting to {source_name}...")
+        try:
+            # Force a 15-second timeout so it never freezes forever
+            response = requests.get(feed_url, headers=headers, timeout=15)
+            feed = feedparser.parse(response.content)
+        except Exception as e:
+            print(f"Failed to connect to {source_name}. Error: {e}")
+            continue
         
+        if not feed.entries:
+            print(f"No articles found for {source_name}. (Note: Make sure the URL is an RSS feed, not just a normal website link!)")
+            continue
+
         # In GitHub Actions, we pull the singular top update from each cycle
         for entry in feed.entries[:2]:
             title = entry.title
-            description = entry.summary if hasattr(entry, 'summary') else title
-            link = entry.link
+            description = getattr(entry, 'summary', title)
+            link = getattr(entry, 'link', feed_url)
             
+            print(f"Analyzing: {title}")
             summary = analyze_and_summarize(title, description)
             
             if summary and "IGNORE" not in summary.upper():
                 print(f"Found match: sending '{title}' to Discord!")
                 send_to_discord(title, summary, link, source_name)
+            else:
+                print("Skipped: Not relevant to DMZ/MW4.")
 
 if __name__ == "__main__":
     check_for_updates()
