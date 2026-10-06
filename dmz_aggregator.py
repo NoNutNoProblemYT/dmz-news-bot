@@ -11,8 +11,8 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
 FEEDS = {
-    "COD Blog": "https://callofduty.com",
-    "COD YouTube": "https://youtube.com"
+    "COD Blog": "https://rssproxy.migor.org/get?url=https://www.callofduty.com/blog",
+    "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
 }
 
 def send_to_discord(title, summary, link, source_name):
