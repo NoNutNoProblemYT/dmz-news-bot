@@ -1,0 +1,27 @@
+name: DMZ News Timer Loop
+
+on:
+  schedule:
+    - cron: '0 */2 * * *' # Wakes up automatically every 2 hours to check for news
+  workflow_dispatch: # Allows you to press a manual "Run" button anytime
+
+jobs:
+  run-aggregator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Libraries
+        run: pip install -r requirements.txt
+
+      - name: Run Script Natively
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python dmz_aggregator.py
