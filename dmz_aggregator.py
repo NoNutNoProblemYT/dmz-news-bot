@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 import feedparser
 import requests
 from google import genai
@@ -25,19 +26,28 @@ def save_sent_link(link):
     with open(TRACKER_FILE, "a") as f:
         f.write(link + "\n")
 
-def send_to_discord(title, summary, link, source_name):
-    payload = {
-        "embeds": [{
-            "title": f"📢 {source_name}: {title}",
-            "description": summary,
-            "url": link,
-            "color": 3066993, 
-            "footer": {"text": "🧠 Powered by Gemini AI Intelligence Engine"}
-        }]
-    }
+def send_to_discord(title, summary, link, source_name, is_status_update=False):
+    if is_status_update:
+        payload = {
+            "embeds": [{
+                "title": "🔍 Scheduled Check Status",
+                "description": summary,
+                "color": 8421504, # Gray color for status updates
+                "footer": {"text": f"Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} | Status Check"}
+            }]
+        }
+    else:
+        payload = {
+            "embeds": [{
+                "title": f"📢 {source_name}: {title}",
+                "description": summary,
+                "url": link,
+                "color": 3066993, 
+                "footer": {"text": "🧠 Powered by Gemini AI Intelligence Engine"}
+            }]
+        }
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        print(f"Discord Response Status: {response.status_code}")
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
     except Exception as e:
         print(f"Discord Webhook Error: {e}")
 
@@ -63,23 +73,22 @@ def analyze_and_summarize(title, description):
         return None
 
 def check_for_updates():
-    print("=== STARTING OPTIMIZED QUOTA-SAVING RUN ===")
+    print("=== STARTING RUN WITH STATUS LOGGING ===")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
-    # Strict keywords to ensure we ONLY spend API quota on actual target news
     target_keywords = ["dmz", "hajin", "exclusion zone", "mw4", "modern warfare 4"]
+    matches_found = 0
 
     for source_name, feed_url in FEEDS.items():
-        print(f"\nConnecting to {source_name}...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
             feed = feedparser.parse(response.content)
         except Exception as e:
-            print(f"Failed to connect: {e}")
+            print(f"Failed to connect to {source_name}: {e}")
             continue
         
         if not feed.entries:
@@ -97,21 +106,27 @@ def check_for_updates():
             if not description:
                 description = title
 
-            # PYTHON PRE-FILTER: Skip Gemini entirely unless target keywords are present
             lower_text = (title + " " + description).lower()
             if not any(kw in lower_text for kw in target_keywords):
                 continue
 
-            print(f"\n[TARGET FOUND] Evaluating via Gemini: '{title}'")
+            print(f"[TARGET FOUND]: {title}")
             summary = analyze_and_summarize(title, description)
             
             if summary:
-                print("   >>> Pushing to Discord...")
-                send_to_discord(title, summary, link, source_name)
+                send_to_discord(title, summary, link, source_name, is_status_update=False)
                 save_sent_link(link)
                 sent_links.add(link)
+                matches_found += 1
 
-    print("\n=== RUN COMPLETE ===")
+    # If no new relevant items were found during this run, post a confirmation status log
+    if matches_found == 0:
+        current_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        status_msg = f"✅ Routine check completed successfully.\n• **Status:** No new MW4 / DMZ matches found.\n• **Time:** {current_time}"
+        send_to_discord(None, status_msg, None, None, is_status_update=True)
+        print("No new matches found. Status update posted to Discord.")
+
+    print("=== RUN COMPLETE ===")
 
 if __name__ == "__main__":
     check_for_updates()
