@@ -10,10 +10,8 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
-# Using proxy wrappers for both ensures they never block GitHub IPs
 FEEDS = {
     "CharlieINTEL (Official Blog Mirror)": "https://charlieintel.com/feed",
-    "COD Official YouTube": "https://rssproxy.migor.org/get?url=https://www.youtube.com/@CallofDuty/videos"
 }
 
 TRACKER_FILE = "sent_links.txt"
@@ -60,7 +58,7 @@ def analyze_and_summarize(title, description):
     """
     try:
         response = ai_client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',  # Updated to the correct active model name
             contents=prompt
         )
         return response.text.strip()
@@ -76,6 +74,8 @@ def check_for_updates():
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
+    
+    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
     
     for source_name, feed_url in FEEDS.items():
         print(f"\nConnecting to {source_name}...")
@@ -93,26 +93,28 @@ def check_for_updates():
 
         print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
-        # Check the top 5 recent entries
-        for entry in feed.entries[:5]:
-            title = getattr(entry, 'title', 'Untitled')
+        for entry in feed.entries[:10]: # Checking top 10 items to catch recent news
+            if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
+                if entry_date < two_weeks_ago:
+                    continue
+
             link = getattr(entry, 'link', feed_url)
-            print(f"\n-> Checking Item: '{title}'")
-            print(f"   Link: {link}")
             
             if link in sent_links:
-                print("   [SKIPPED] Already in sent_links.txt memory.")
+                print(f"   [SKIPPED] Already in sent_links.txt memory: {link}")
                 continue
 
+            title = getattr(entry, 'title', 'Untitled')
             description = getattr(entry, 'summary', '')
             if not description and hasattr(entry, 'content'):
                 description = entry.content[0].get('value', '')
             if not description:
                 description = title
 
-            print("   Sending to Gemini for evaluation...")
+            print(f"\n-> Checking Item: '{title}'")
             summary = analyze_and_summarize(title, description)
-            print(f"   Gemini Raw Output:\n{summary}")
+            print(f"   Gemini Raw Output: {summary}")
             
             if summary and "IGNORE" not in summary.upper():
                 print("   >>> MATCH FOUND! Pushing to Discord...")
@@ -120,7 +122,7 @@ def check_for_updates():
                 save_sent_link(link)
                 sent_links.add(link)
             else:
-                print("   [SKIPPED] Gemini returned IGNORE or empty response.")
+                print("   [SKIPPED] Gemini returned IGNORE.")
 
     print("\n=== AGGREGATOR RUN COMPLETE ===")
 
