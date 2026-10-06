@@ -1,4 +1,6 @@
 import os
+import time
+from datetime import datetime, timezone, timedelta
 import feedparser
 import requests
 from google import genai
@@ -42,7 +44,6 @@ def send_to_discord(title, summary, link, source_name):
         print(f"Discord Webhook Error: {e}")
 
 def analyze_and_summarize(title, description):
-    # Expanded tag cloud and semantic rules to match MW4, DMZ, and Hajin intel
     prompt = f"""
     You are an AI assistant monitoring Call of Duty updates for a specialized DMZ extraction mode and Modern Warfare 4 community.
     Analyze the following content.
@@ -67,12 +68,15 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("=== STARTING TAG-EXPANDED AGGREGATOR RUN ===")
+    print("=== STARTING FULL RANGE AGGREGATOR RUN ===")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
+    
+    # Expanded lookback window to catch content all the way back to the MW4 beta timeframe (approx 60 days)
+    lookback_window = datetime.now(timezone.utc) - timedelta(days=60)
     
     for source_name, feed_url in FEEDS.items():
         print(f"\nConnecting to {source_name}...")
@@ -90,8 +94,12 @@ def check_for_updates():
 
         print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
-        # Check top 5 entries with expanded semantic criteria
-        for entry in feed.entries[:5]:
+        for entry in feed.entries[:15]:
+            if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
+                if entry_date < lookback_window:
+                    continue
+
             link = getattr(entry, 'link', feed_url)
             
             if link in sent_links:
