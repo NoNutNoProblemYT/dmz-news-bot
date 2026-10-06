@@ -5,19 +5,17 @@ import feedparser
 import requests
 from google import genai
 
-# Grab protected keys from GitHub Secret Vault
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Explicitly load the client with your key
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
+# Reliable feeds that never block GitHub/Python scrapers
 FEEDS = {
-    "COD Blog": "https://rssproxy.migor.org/get?url=https://www.callofduty.com/blog",
+    "COD Intel & Blog News": "https://charlieintel.com/feed",
     "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
 }
 
-# File tracker to remember what has already been posted
 TRACKER_FILE = "sent_links.txt"
 
 def load_sent_links():
@@ -49,7 +47,7 @@ def send_to_discord(title, summary, link, source_name):
 
 def analyze_and_summarize(title, description):
     prompt = f"""
-    You are an AI assistant monitoring official Call of Duty updates, trailers, and media for a specialized DMZ extraction mode and MW4 community.
+    You are an AI assistant monitoring Call of Duty updates for a specialized DMZ extraction mode and MW4 community.
     Analyze the following content.
     
     TITLE: {title}
@@ -57,7 +55,7 @@ def analyze_and_summarize(title, description):
     
     Instructions:
     1. Determine if this content relates to Call of Duty: Modern Warfare / MW4 updates, extraction gameplay, or DMZ mode. 
-    2. If it is completely unrelated (e.g., mobile games, unrelated studio titles, non-COD content), reply exactly with the word: IGNORE
+    2. If it is completely unrelated, reply exactly with the word: IGNORE
     3. If it IS relevant, write a concise summary focusing on the key details or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
     4. CRITICAL DUPLICATE CHECK: If the text discusses general updates or patches that have already been well-established, filter out the fluff and summarize *only* what is unique. If it's completely repetitive information with nothing new, reply exactly with: IGNORE
     """
@@ -72,11 +70,11 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking feeds...")
+    print("Checking reliable feeds...")
     sent_links = load_sent_links()
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
     two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
@@ -85,14 +83,17 @@ def check_for_updates():
         print(f"Connecting to {source_name}...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
+            print(f"HTTP Status for {source_name}: {response.status_code}")
             feed = feedparser.parse(response.content)
         except Exception as e:
             print(f"Failed to connect to {source_name}. Error: {e}")
             continue
         
         if not feed.entries:
-            print(f"No articles found for {source_name}.")
+            print(f"WARNING: No entries found for {source_name}.")
             continue
+
+        print(f"Found {len(feed.entries)} total entries. Processing recent ones...")
 
         for entry in feed.entries[:5]:
             if hasattr(entry, 'published_parsed') and entry.published_parsed:
@@ -106,7 +107,6 @@ def check_for_updates():
                 continue
 
             title = getattr(entry, 'title', 'Untitled')
-            
             description = getattr(entry, 'summary', '')
             if not description and hasattr(entry, 'content'):
                 description = entry.content[0].get('value', '')
@@ -115,9 +115,10 @@ def check_for_updates():
 
             print(f"Analyzing: {title}")
             summary = analyze_and_summarize(title, description)
+            print(f"Gemini Result: {summary[:30]}...")
             
             if summary and "IGNORE" not in summary.upper():
-                print(f"Found match: sending '{title}' to Discord!")
+                print(f"MATCH! Sending to Discord: {title}")
                 send_to_discord(title, summary, link, source_name)
                 save_sent_link(link)
                 sent_links.add(link)
