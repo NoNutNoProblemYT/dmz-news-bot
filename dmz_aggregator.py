@@ -8,7 +8,6 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
-# Using high-reliability feeds
 FEEDS = {
     "CharlieINTEL": "https://charlieintel.com/feed",
     "MP1st COD Feed": "https://mp1st.com/feed"
@@ -51,10 +50,7 @@ def analyze_and_summarize(title, description):
     CONTENT/DESCRIPTION: {description}
     
     Instructions:
-    1. Determine if this content relates to 'DMZ mode', extraction gameplay, 'Modern Warfare 4', 'MW4', the 'Hajin' map, Exclusion Zone features, or related tactical blog/video intel drops.
-    2. If it is completely unrelated to MW4, DMZ, or Hajin (e.g., standard generic multiplayer loadouts for older games, unrelated mobile titles), reply exactly with the word: IGNORE
-    3. If it IS relevant, write a concise summary focusing on the key details, map features, or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
-    4. CRITICAL DUPLICATE CHECK: If the text discusses general updates or patches that have already been well-established, filter out the fluff and summarize *only* what is unique. If it's completely repetitive information with nothing new, reply exactly with: IGNORE
+    1. Write a concise summary focusing on key details, map features, or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
     """
     try:
         response = ai_client.models.generate_content(
@@ -64,38 +60,34 @@ def analyze_and_summarize(title, description):
         return response.text.strip()
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        return "IGNORE"
+        return None
 
 def check_for_updates():
-    print("=== STARTING UNRESTRICTED RUN ===")
+    print("=== STARTING OPTIMIZED QUOTA-SAVING RUN ===")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
+    # Strict keywords to ensure we ONLY spend API quota on actual target news
+    target_keywords = ["dmz", "hajin", "exclusion zone", "mw4", "modern warfare 4"]
+
     for source_name, feed_url in FEEDS.items():
         print(f"\nConnecting to {source_name}...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
-            print(f"HTTP Status: {response.status_code}")
             feed = feedparser.parse(response.content)
         except Exception as e:
             print(f"Failed to connect: {e}")
             continue
         
         if not feed.entries:
-            print(f"WARNING: Zero entries found for {source_name}!")
             continue
 
-        print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
-
-        # Check top 10 recent items with NO date restriction
-        for entry in feed.entries[:10]:
+        for entry in feed.entries:
             link = getattr(entry, 'link', feed_url)
-            
             if link in sent_links:
-                print(f"   [SKIPPED] Already sent: {link}")
                 continue
 
             title = getattr(entry, 'title', 'Untitled')
@@ -105,17 +97,19 @@ def check_for_updates():
             if not description:
                 description = title
 
-            print(f"\n-> Evaluating Item: '{title}'")
+            # PYTHON PRE-FILTER: Skip Gemini entirely unless target keywords are present
+            lower_text = (title + " " + description).lower()
+            if not any(kw in lower_text for kw in target_keywords):
+                continue
+
+            print(f"\n[TARGET FOUND] Evaluating via Gemini: '{title}'")
             summary = analyze_and_summarize(title, description)
-            print(f"   Gemini Output: {summary}")
             
-            if summary and "IGNORE" not in summary.upper():
-                print("   >>> MATCH FOUND! Pushing to Discord...")
+            if summary:
+                print("   >>> Pushing to Discord...")
                 send_to_discord(title, summary, link, source_name)
                 save_sent_link(link)
                 sent_links.add(link)
-            else:
-                print("   [SKIPPED] Gemini returned IGNORE.")
 
     print("\n=== RUN COMPLETE ===")
 
