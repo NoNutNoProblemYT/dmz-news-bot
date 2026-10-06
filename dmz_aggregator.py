@@ -32,7 +32,7 @@ def send_to_discord(title, summary, link, source_name, is_status_update=False):
             "embeds": [{
                 "title": "🔍 Scheduled Check Status",
                 "description": summary,
-                "color": 8421504, # Gray color for status updates
+                "color": 8421504,
                 "footer": {"text": f"Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} | Status Check"}
             }]
         }
@@ -73,7 +73,7 @@ def analyze_and_summarize(title, description):
         return None
 
 def check_for_updates():
-    print("=== STARTING RUN WITH STATUS LOGGING ===")
+    print("=== STARTING FULL RUN WITH AI & STATUS LOGGING ===")
     sent_links = load_sent_links()
     
     headers = {
@@ -119,7 +119,6 @@ def check_for_updates():
                 sent_links.add(link)
                 matches_found += 1
 
-    # If no new relevant items were found during this run, post a confirmation status log
     if matches_found == 0:
         current_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         status_msg = f"✅ Routine check completed successfully.\n• **Status:** No new MW4 / DMZ matches found.\n• **Time:** {current_time}"
