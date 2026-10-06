@@ -1,4 +1,6 @@
 import os
+import time
+from datetime import datetime, timezone, timedelta
 import feedparser
 import requests
 from google import genai
@@ -14,6 +16,19 @@ FEEDS = {
     "COD Blog": "https://rssproxy.migor.org/get?url=https://www.callofduty.com/blog",
     "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
 }
+
+# File tracker to remember what has already been posted so it never repeats
+TRACKER_FILE = "sent_links.txt"
+
+def load_sent_links():
+    if os.path.exists(TRACKER_FILE):
+        with open(TRACKER_FILE, "r") as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+def save_sent_link(link):
+    with open(TRACKER_FILE, "a") as f:
+        f.write(link + "\n")
 
 def send_to_discord(title, summary, link, source_name):
     payload = {
@@ -57,16 +72,19 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking official feeds...")
-    # Add a browser disguise so websites don't block the GitHub bot
+    print("Checking feeds with memory tracker...")
+    sent_links = load_sent_links()
+    
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
     }
     
+    # Look back up to 7 days for catch-up
+    one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    
     for source_name, feed_url in FEEDS.items():
         print(f"Connecting to {source_name}...")
         try:
-            # Force a 15-second timeout so it never freezes forever
             response = requests.get(feed_url, headers=headers, timeout=15)
             feed = feedparser.parse(response.content)
         except Exception as e:
@@ -74,21 +92,33 @@ def check_for_updates():
             continue
         
         if not feed.entries:
-            print(f"No articles found for {source_name}. (Note: Make sure the URL is an RSS feed, not just a normal website link!)")
+            print(f"No articles found for {source_name}.")
             continue
 
-        # In GitHub Actions, we pull the singular top update from each cycle
-        for entry in feed.entries[:2]:
-            title = entry.title
-            description = getattr(entry, 'summary', title)
+        for entry in feed.entries:
+            if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
+                if entry_date < one_week_ago:
+                    continue
+
             link = getattr(entry, 'link', feed_url)
             
-            print(f"Analyzing: {title}")
+            # If we already sent this link in the past, skip it entirely!
+            if link in sent_links:
+                continue
+
+            title = entry.title
+            description = getattr(entry, 'summary', title)
+            
+            print(f"Analyzing new item: {title}")
             summary = analyze_and_summarize(title, description)
             
             if summary and "IGNORE" not in summary.upper():
                 print(f"Found match: sending '{title}' to Discord!")
                 send_to_discord(title, summary, link, source_name)
+                # Save it to our memory tracker so it's never posted again
+                save_sent_link(link)
+                sent_links.add(link)
             else:
                 print("Skipped: Not relevant to DMZ/MW4.")
 
