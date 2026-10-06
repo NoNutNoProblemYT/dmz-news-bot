@@ -42,17 +42,18 @@ def send_to_discord(title, summary, link, source_name):
         print(f"Discord Webhook Error: {e}")
 
 def analyze_and_summarize(title, description):
+    # Expanded tag cloud and semantic rules to match MW4, DMZ, and Hajin intel
     prompt = f"""
-    You are an AI assistant monitoring Call of Duty updates for a specialized DMZ extraction mode and MW4 community.
+    You are an AI assistant monitoring Call of Duty updates for a specialized DMZ extraction mode and Modern Warfare 4 community.
     Analyze the following content.
     
     TITLE: {title}
     CONTENT/DESCRIPTION: {description}
     
     Instructions:
-    1. Determine if this content relates to Call of Duty: Modern Warfare / MW4 updates, extraction gameplay, or DMZ mode. 
-    2. If it is completely unrelated, reply exactly with the word: IGNORE
-    3. If it IS relevant, write a concise summary focusing on the key details or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
+    1. Determine if this content relates to 'DMZ mode', extraction gameplay, 'Modern Warfare 4', 'MW4', the 'Hajin' map, Exclusion Zone features, or related tactical blog/video intel drops.
+    2. If it is completely unrelated to MW4, DMZ, or Hajin (e.g., standard generic multiplayer loadouts for older games, unrelated mobile titles), reply exactly with the word: IGNORE
+    3. If it IS relevant, write a concise summary focusing on the key details, map features, or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
     4. CRITICAL DUPLICATE CHECK: If the text discusses general updates or patches that have already been well-established, filter out the fluff and summarize *only* what is unique. If it's completely repetitive information with nothing new, reply exactly with: IGNORE
     """
     try:
@@ -66,7 +67,7 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("=== STARTING UNRESTRICTED AGGREGATOR RUN ===")
+    print("=== STARTING TAG-EXPANDED AGGREGATOR RUN ===")
     sent_links = load_sent_links()
     
     headers = {
@@ -89,8 +90,8 @@ def check_for_updates():
 
         print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
-        # Check top 3 entries with NO date filter, forcing immediate evaluation
-        for entry in feed.entries[:3]:
+        # Check top 5 entries with expanded semantic criteria
+        for entry in feed.entries[:5]:
             link = getattr(entry, 'link', feed_url)
             
             if link in sent_links:
