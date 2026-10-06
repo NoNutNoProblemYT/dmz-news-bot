@@ -5,7 +5,11 @@ from google import genai
 
 # Grab protected keys from GitHub Secret Vault
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-ai_client = genai.Client()
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Explicitly load the client with your key so it never hangs
+ai_client = genai.Client(api_key=GEMINI_KEY)
+
 
 FEEDS = {
     "COD Blog": "https://callofduty.com",
