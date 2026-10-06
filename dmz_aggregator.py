@@ -72,15 +72,15 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking feeds with memory tracker...")
+    print("Checking feeds with expanded depth...")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
     }
     
-    # Look back up to 7 days for catch-up
-    one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    # Extended 14-day window to catch anything recent that missed a beat
+    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
     
     for source_name, feed_url in FEEDS.items():
         print(f"Connecting to {source_name}...")
@@ -95,28 +95,27 @@ def check_for_updates():
             print(f"No articles found for {source_name}.")
             continue
 
-        for entry in feed.entries:
+        # Grab up to the top 5 entries to ensure fast-dropping trailers aren't bypassed
+        for entry in feed.entries[:5]:
             if hasattr(entry, 'published_parsed') and entry.published_parsed:
                 entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-                if entry_date < one_week_ago:
+                if entry_date < two_weeks_ago:
                     continue
 
             link = getattr(entry, 'link', feed_url)
             
-            # If we already sent this link in the past, skip it entirely!
             if link in sent_links:
                 continue
 
             title = entry.title
             description = getattr(entry, 'summary', title)
             
-            print(f"Analyzing new item: {title}")
+            print(f"Analyzing: {title}")
             summary = analyze_and_summarize(title, description)
             
             if summary and "IGNORE" not in summary.upper():
                 print(f"Found match: sending '{title}' to Discord!")
                 send_to_discord(title, summary, link, source_name)
-                # Save it to our memory tracker so it's never posted again
                 save_sent_link(link)
                 sent_links.add(link)
             else:
