@@ -10,10 +10,10 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
-# Reliable feeds that never block GitHub/Python scrapers
+# Using proxy wrappers for both ensures they never block GitHub IPs
 FEEDS = {
-    "COD Intel & Blog News": "https://charlieintel.com/feed",
-    "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
+    "CharlieINTEL (Official Blog Mirror)": "https://charlieintel.com/feed",
+    "COD Official YouTube": "https://rssproxy.migor.org/get?url=https://www.youtube.com/@CallofDuty/videos"
 }
 
 TRACKER_FILE = "sent_links.txt"
@@ -40,8 +40,7 @@ def send_to_discord(title, summary, link, source_name):
     }
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        if response.status_code != 204:
-            print(f"Failed to post to Discord: {response.text}")
+        print(f"Discord Response Status: {response.status_code}")
     except Exception as e:
         print(f"Discord Webhook Error: {e}")
 
@@ -70,61 +69,60 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking reliable feeds...")
+    print("=== STARTING AGGREGATOR RUN ===")
     sent_links = load_sent_links()
+    print(f"Loaded {len(sent_links)} previously sent links from memory.")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
     
-    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
-    
     for source_name, feed_url in FEEDS.items():
-        print(f"Connecting to {source_name}...")
+        print(f"\nConnecting to {source_name}...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
-            print(f"HTTP Status for {source_name}: {response.status_code}")
+            print(f"HTTP Status: {response.status_code}")
             feed = feedparser.parse(response.content)
         except Exception as e:
-            print(f"Failed to connect to {source_name}. Error: {e}")
+            print(f"Failed to connect: {e}")
             continue
         
         if not feed.entries:
-            print(f"WARNING: No entries found for {source_name}.")
+            print(f"WARNING: Zero entries found for {source_name}!")
             continue
 
-        print(f"Found {len(feed.entries)} total entries. Processing recent ones...")
+        print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
+        # Check the top 5 recent entries
         for entry in feed.entries[:5]:
-            if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-                if entry_date < two_weeks_ago:
-                    continue
-
+            title = getattr(entry, 'title', 'Untitled')
             link = getattr(entry, 'link', feed_url)
+            print(f"\n-> Checking Item: '{title}'")
+            print(f"   Link: {link}")
             
             if link in sent_links:
+                print("   [SKIPPED] Already in sent_links.txt memory.")
                 continue
 
-            title = getattr(entry, 'title', 'Untitled')
             description = getattr(entry, 'summary', '')
             if not description and hasattr(entry, 'content'):
                 description = entry.content[0].get('value', '')
             if not description:
                 description = title
 
-            print(f"Analyzing: {title}")
+            print("   Sending to Gemini for evaluation...")
             summary = analyze_and_summarize(title, description)
-            print(f"Gemini Result: {summary[:30]}...")
+            print(f"   Gemini Raw Output:\n{summary}")
             
             if summary and "IGNORE" not in summary.upper():
-                print(f"MATCH! Sending to Discord: {title}")
+                print("   >>> MATCH FOUND! Pushing to Discord...")
                 send_to_discord(title, summary, link, source_name)
                 save_sent_link(link)
                 sent_links.add(link)
             else:
-                print("Skipped: Not relevant.")
+                print("   [SKIPPED] Gemini returned IGNORE or empty response.")
+
+    print("\n=== AGGREGATOR RUN COMPLETE ===")
 
 if __name__ == "__main__":
     check_for_updates()
-    print("Scan complete.")
