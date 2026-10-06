@@ -1,6 +1,4 @@
 import os
-import time
-from datetime import datetime, timezone, timedelta
 import feedparser
 import requests
 from google import genai
@@ -11,7 +9,8 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
 FEEDS = {
-    "CharlieINTEL (Official Blog Mirror)": "https://charlieintel.com/feed",
+    "CharlieINTEL": "https://charlieintel.com/feed",
+    "COD YouTube": "https://rssproxy.migor.org/get?url=https://www.youtube.com/@CallofDuty/videos"
 }
 
 TRACKER_FILE = "sent_links.txt"
@@ -58,7 +57,7 @@ def analyze_and_summarize(title, description):
     """
     try:
         response = ai_client.models.generate_content(
-            model='gemini-3.8-flash',  # Updated to the correct active model name
+            model='gemini-3.8-flash',
             contents=prompt
         )
         return response.text.strip()
@@ -67,15 +66,12 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("=== STARTING AGGREGATOR RUN ===")
+    print("=== STARTING UNRESTRICTED AGGREGATOR RUN ===")
     sent_links = load_sent_links()
-    print(f"Loaded {len(sent_links)} previously sent links from memory.")
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-    
-    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
     
     for source_name, feed_url in FEEDS.items():
         print(f"\nConnecting to {source_name}...")
@@ -93,12 +89,8 @@ def check_for_updates():
 
         print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
-        for entry in feed.entries[:10]: # Checking top 10 items to catch recent news
-            if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-                if entry_date < two_weeks_ago:
-                    continue
-
+        # Check top 3 entries with NO date filter, forcing immediate evaluation
+        for entry in feed.entries[:3]:
             link = getattr(entry, 'link', feed_url)
             
             if link in sent_links:
@@ -112,9 +104,9 @@ def check_for_updates():
             if not description:
                 description = title
 
-            print(f"\n-> Checking Item: '{title}'")
+            print(f"\n-> Evaluating Item: '{title}'")
             summary = analyze_and_summarize(title, description)
-            print(f"   Gemini Raw Output: {summary}")
+            print(f"   Gemini Output: {summary}")
             
             if summary and "IGNORE" not in summary.upper():
                 print("   >>> MATCH FOUND! Pushing to Discord...")
