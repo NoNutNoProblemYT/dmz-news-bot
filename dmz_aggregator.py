@@ -1,6 +1,4 @@
 import os
-import time
-from datetime import datetime, timezone, timedelta
 import feedparser
 import requests
 from google import genai
@@ -10,9 +8,10 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
+# Using high-reliability feeds
 FEEDS = {
     "CharlieINTEL": "https://charlieintel.com/feed",
-    "COD YouTube": "https://rssproxy.migor.org/get?url=https://www.youtube.com/@CallofDuty/videos"
+    "MP1st COD Feed": "https://mp1st.com/feed"
 }
 
 TRACKER_FILE = "sent_links.txt"
@@ -68,15 +67,12 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("=== STARTING FULL RANGE AGGREGATOR RUN ===")
+    print("=== STARTING UNRESTRICTED RUN ===")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-    
-    # Expanded lookback window to catch content all the way back to the MW4 beta timeframe (approx 60 days)
-    lookback_window = datetime.now(timezone.utc) - timedelta(days=60)
     
     for source_name, feed_url in FEEDS.items():
         print(f"\nConnecting to {source_name}...")
@@ -94,16 +90,12 @@ def check_for_updates():
 
         print(f"Successfully retrieved {len(feed.entries)} items from {source_name}.")
 
-        for entry in feed.entries[:15]:
-            if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-                if entry_date < lookback_window:
-                    continue
-
+        # Check top 10 recent items with NO date restriction
+        for entry in feed.entries[:10]:
             link = getattr(entry, 'link', feed_url)
             
             if link in sent_links:
-                print(f"   [SKIPPED] Already in sent_links.txt memory: {link}")
+                print(f"   [SKIPPED] Already sent: {link}")
                 continue
 
             title = getattr(entry, 'title', 'Untitled')
@@ -125,7 +117,7 @@ def check_for_updates():
             else:
                 print("   [SKIPPED] Gemini returned IGNORE.")
 
-    print("\n=== AGGREGATOR RUN COMPLETE ===")
+    print("\n=== RUN COMPLETE ===")
 
 if __name__ == "__main__":
     check_for_updates()
