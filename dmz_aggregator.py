@@ -5,9 +5,11 @@ import feedparser
 import requests
 from google import genai
 
+# Grab protected keys from GitHub Secret Vault
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Explicitly load the client with your key so it never hangs
 ai_client = genai.Client(api_key=GEMINI_KEY)
 
 FEEDS = {
@@ -15,6 +17,7 @@ FEEDS = {
     "COD YouTube": "https://www.youtube.com/feeds/videos.xml?channel_id=UC9YydG57epLqxA9cTzZXSeQ"
 }
 
+# File tracker to remember what has already been posted so it never repeats
 TRACKER_FILE = "sent_links.txt"
 
 def load_sent_links():
@@ -46,17 +49,17 @@ def send_to_discord(title, summary, link, source_name):
 
 def analyze_and_summarize(title, description):
     prompt = f"""
-    You are an AI assistant monitoring Call of Duty updates for a specialized DMZ extraction mode community.
+    You are an AI assistant monitoring official Call of Duty updates, trailers, and media for a specialized DMZ extraction mode and MW4 community.
     Analyze the following content.
     
     TITLE: {title}
-    CONTENT: {description}
+    CONTENT/DESCRIPTION: {description}
     
     Instructions:
-    1. Determine if this content contains information relevant to 'DMZ mode', extraction gameplay, or MW4 updates.
-    2. If it is NOT relevant to DMZ or general MW4 updates, reply exactly with the word: IGNORE
-    3. If it IS relevant, write a concise summary focusing purely on DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
-    4. CRITICAL DUPLICATE CHECK: If the text discusses general updates or patches that have already been well-established or repeated across normal news streams, filter out the redundant fluff and summarize *only* what is unique. If it's completely repetitive information with nothing new, reply exactly with: IGNORE
+    1. Determine if this content relates to Call of Duty: Modern Warfare / MW4 updates, extraction gameplay, or DMZ mode. 
+    2. If it is completely unrelated (e.g., mobile games, unrelated studio titles, non-COD content), reply exactly with the word: IGNORE
+    3. If it IS relevant, write a concise summary focusing on the key details or DMZ elements. Use short bullet points. Keep it under 4 sentences. Do not use conversational filler.
+    4. CRITICAL DUPLICATE CHECK: If the text discusses general updates or patches that have already been well-established, filter out the fluff and summarize *only* what is unique. If it's completely repetitive information with nothing new, reply exactly with: IGNORE
     """
     try:
         response = ai_client.models.generate_content(
@@ -69,51 +72,59 @@ def analyze_and_summarize(title, description):
         return "IGNORE"
 
 def check_for_updates():
-    print("Checking feeds with debug logging...")
+    print("Checking feeds with enhanced YouTube description parsing...")
     sent_links = load_sent_links()
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
     }
     
+    # 14-day lookback window for catch-up
+    two_weeks_ago = datetime.now(timezone.utc) - timedelta(days=14)
+    
     for source_name, feed_url in FEEDS.items():
-        print(f"Connecting to {source_name} ({feed_url})...")
+        print(f"Connecting to {source_name}...")
         try:
             response = requests.get(feed_url, headers=headers, timeout=15)
-            print(f"HTTP Status for {source_name}: {response.status_code}")
             feed = feedparser.parse(response.content)
         except Exception as e:
             print(f"Failed to connect to {source_name}. Error: {e}")
             continue
         
         if not feed.entries:
-            print(f"WARNING: feedparser found ZERO entries for {source_name}. The feed might be blocked or empty.")
+            print(f"No articles found for {source_name}.")
             continue
 
-        print(f"Successfully loaded {len(feed.entries)} entries from {source_name}.")
-
         for entry in feed.entries[:5]:
-            title = getattr(entry, 'title', 'No Title')
+            if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                entry_date = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
+                if entry_date < two_weeks_ago:
+                    continue
+
             link = getattr(entry, 'link', feed_url)
-            print(f"-> Found raw entry title: {title}")
             
             if link in sent_links:
-                print(f"   (Skipping: already in sent_links.txt)")
                 continue
 
-            description = getattr(entry, 'summary', title)
+            title = getattr(entry, 'title', 'Untitled')
             
-            print(f"   Analyzing with Gemini...")
+            # Robust description extractor for YouTube Atom feeds & blogs
+            description = getattr(entry, 'summary', '')
+            if not description and hasattr(entry, 'content'):
+                description = entry.content[0].get('value', '')
+            if not description:
+                description = title
+
+            print(f"Analyzing: {title}")
             summary = analyze_and_summarize(title, description)
-            print(f"   Gemini response: {summary[:50]}...")
             
             if summary and "IGNORE" not in summary.upper():
-                print(f"   MATCH FOUND! Sending '{title}' to Discord!")
+                print(f"Found match: sending '{title}' to Discord!")
                 send_to_discord(title, summary, link, source_name)
                 save_sent_link(link)
                 sent_links.add(link)
             else:
-                print("   Skipped: Gemini returned IGNORE.")
+                print("Skipped: Not relevant.")
 
 if __name__ == "__main__":
     check_for_updates()
